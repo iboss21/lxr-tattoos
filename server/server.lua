@@ -285,7 +285,9 @@ AddEventHandler('redrp-bt:buyTattoo', function(tattoo)
     
     for k, v in pairs(Config.overlays[tattoo.sex]) do
         if tattoo.Name == k then
-            local tattooPrice = (tattoo.colorName == "Black" and v.price or v.price + Config.ColorPrice)
+            -- Backward compatibility: check for both "Noir" (French) and "Black" (English)
+            local isBaseColor = (tattoo.colorName == "Black" or tattoo.colorName == "Noir")
+            local tattooPrice = (isBaseColor and v.price or v.price + Config.ColorPrice)
             
             -- Debug mode: all tattoos cost $1
             if Config.DEBUG then

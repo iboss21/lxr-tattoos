@@ -204,7 +204,7 @@ Config.FrameworkSettings = {
 -- ████████████████████████ GENERAL SETTINGS ██████████████████████████████████████
 -- ████████████████████████████████████████████████████████████████████████████████
 
-Config.DEBUG = false -- Debug mode: All tattoos cost $1 when true
+Config.DEBUG = false -- Debug mode: All tattoos cost $1 for testing/debugging when enabled
 Config.UpdateTattooEveryMinute = false -- Update tattoos every minute (for texture sync issues)
 
 -- ████████████████████████████████████████████████████████████████████████████████
