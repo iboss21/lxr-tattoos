@@ -214,7 +214,7 @@ Config.UpdateTattooEveryMinute = false -- Update tattoos every minute (for textu
 Config.NPCModel = "mp_u_m_m_traderintroclerk_01" -- NPC model for tattoo artist
 
 Config.ShowBlips = true -- Show tattoo shop blips on map
-Config.BlipName = "Tattoo Artist"
+Config.BlipName = "Tatoueur" -- Tattoo Artist (keeping original French for consistency)
 Config.BlipSprite = 2017085833
 
 Config.Shops = {

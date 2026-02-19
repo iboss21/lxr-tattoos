@@ -187,7 +187,15 @@ if FrameworkName == 'vorp_core' and VORP then
     VORP.addNewCallBack("redrp-bt:getOutfit", function(source, cb)
         local Character = GetCharacter(source)
         if Character and Character.identifier ~= nil then
-            cb(json.decode(Character.comps or "{}"))
+            -- Safely decode comps, handle if property doesn't exist or is invalid JSON
+            local comps = {}
+            if Character.comps and type(Character.comps) == "string" and Character.comps ~= "" then
+                local success, decoded = pcall(json.decode, Character.comps)
+                if success then
+                    comps = decoded
+                end
+            end
+            cb(comps)
         else
             cb({})
         end
@@ -197,7 +205,15 @@ if FrameworkName == 'vorp_core' and VORP then
     VORP.addNewCallBack("redrp-bt:getSkin", function(source, cb)
         local Character = GetCharacter(source)
         if Character and Character.identifier ~= nil then
-            cb(json.decode(Character.skin or "{}"))
+            -- Safely decode skin, handle if property doesn't exist or is invalid JSON
+            local skin = {}
+            if Character.skin and type(Character.skin) == "string" and Character.skin ~= "" then
+                local success, decoded = pcall(json.decode, Character.skin)
+                if success then
+                    skin = decoded
+                end
+            end
+            cb(skin)
         else
             cb({})
         end
