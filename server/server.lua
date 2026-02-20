@@ -329,6 +329,35 @@ end)
 --- For VORP the data comes from the character skin JSON stored by VORP.
 --- For lxr-core / rsg-core the skin JSON (if present in PlayerData) is returned;
 --- an empty table is sent as fallback so the client falls back to the first texture.
+---
+--- murphy_creator compatibility: if the skin JSON does not expose `albedo` at the top level
+--- (murphy_creator stores appearance data in nested sub-tables or uses integer head-type
+--- indices), this handler promotes the albedo value to the top level so the client-side
+--- ResolveTexture function can find it without needing to know the exact JSON layout.
+local function normalizeSkinData(raw)
+    if type(raw) ~= 'table' then return raw end
+
+    -- If a top-level albedo is already present nothing needs to change.
+    if raw.albedo ~= nil then return raw end
+
+    -- Probe common murphy_creator / rsg-appearance nested locations.
+    -- We create a shallow copy so we never mutate the original PlayerData table.
+    local promoted = {}
+    for k, v in pairs(raw) do promoted[k] = v end
+
+    if type(raw.head) == 'table' and raw.head.albedo ~= nil then
+        promoted.albedo = raw.head.albedo
+    elseif type(raw.body) == 'table' and raw.body.albedo ~= nil then
+        promoted.albedo = raw.body.albedo
+    elseif raw.headAlbedo ~= nil then
+        promoted.albedo = raw.headAlbedo
+    end
+    -- Integer-index variants (headType / head as bare integer) are left as-is because the
+    -- client-side ResolveTexture already understands them natively.
+
+    return promoted
+end
+
 RegisterServerEvent('lxr-tattoos:requestSkin')
 AddEventHandler('lxr-tattoos:requestSkin', function(requestId)
     local _source = source
@@ -354,10 +383,10 @@ AddEventHandler('lxr-tattoos:requestSkin', function(requestId)
                 if type(rawSkin) == "string" and rawSkin ~= "" then
                     local ok, decoded = pcall(json.decode, rawSkin)
                     if ok and type(decoded) == "table" then
-                        skinData = decoded
+                        skinData = normalizeSkinData(decoded)
                     end
                 elseif type(rawSkin) == "table" then
-                    skinData = rawSkin
+                    skinData = normalizeSkinData(rawSkin)
                 end
             end
         end

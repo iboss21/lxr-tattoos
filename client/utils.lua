@@ -432,9 +432,16 @@ function Undress(topless)
             Citizen.InvokeNative(0xD3A7B003ED343FD9, pedId, naked.bra, true, false, false)
             Citizen.InvokeNative(0xD3A7B003ED343FD9, pedId, naked.bra, true, true, false)
         end
-        if naked.body then
-            Citizen.InvokeNative(0xD3A7B003ED343FD9, pedId, naked.body, true, false, false)
-            Citizen.InvokeNative(0xD3A7B003ED343FD9, pedId, naked.body, true, true, false)
+        -- For the body: prefer the explicit config hash; fall back to the pre-strip body hash
+        -- so the player's own skin tone (managed by murphy_creator / RSG-Appearance) is kept
+        -- instead of a hardcoded default that may not match the character's complexion.
+        local bodyHash = naked.body
+        if not bodyHash and savedBodyHash and savedBodyHash ~= 0 then
+            bodyHash = savedBodyHash
+        end
+        if bodyHash then
+            Citizen.InvokeNative(0xD3A7B003ED343FD9, pedId, bodyHash, true, false, false)
+            Citizen.InvokeNative(0xD3A7B003ED343FD9, pedId, bodyHash, true, true, false)
             Citizen.Wait(200)
             Citizen.InvokeNative(0xCC8CA3E88256E58F, pedId, 0, 1, 1, 1, 0)
         end
