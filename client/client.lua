@@ -56,12 +56,15 @@ AddEventHandler('lxr-tattoos:skinResponse', function(requestId, skinData)
 end)
 
 --- Picks the correct Config.Textures entry for pedSex based on skin albedo.
---- Falls back to the first entry when albedo is unknown (lxr-core / rsg-core).
+--- Handles albedo as an integer hash (VORP) or a string texture name (lxr-core/rsg-core).
+--- Falls back to the player's existing tattoo textures, then to the first entry.
 local function ResolveTexture(back, pedSex)
     if back and back.albedo then
+        -- Support albedo as integer hash (VORP) or string texture name (lxr-core/rsg-core)
+        local albedoHash = type(back.albedo) == 'number' and back.albedo or joaat(tostring(back.albedo))
         local configbase = Config.CharHeads[pedSex]
         for i = 1, #configbase do
-            if joaat(configbase[i]) == back.albedo then
+            if joaat(configbase[i]) == albedoHash then
                 local chaine = configbase[i]
                 local debut, fin = string.find(chaine, "_sc(%d+)_")
                 local sc = string.sub(chaine, debut + 3, fin - 1)
@@ -74,7 +77,11 @@ local function ResolveTexture(back, pedSex)
             end
         end
     end
-    -- Fallback: use first available texture (covers lxr-core / rsg-core with no albedo)
+    -- Secondary fallback: reuse textures from the player's existing tattoo (preserves skin tone)
+    if MY_TATTOO and MY_TATTOO.textures then
+        return MY_TATTOO.textures
+    end
+    -- Final fallback: use first available texture
     return Config.Textures[pedSex][1]
 end
 
@@ -277,6 +284,15 @@ function MainMenu(stoolObj, x, y, z, h)
     local pedId = PlayerPedId() -- ID du personnage du joueur
     local pedSex = IsPedMale(pedId) and "Male" or "Female" -- Détermine le sexe du personnage
 
+    -- Pre-fetch and cache the correct skin texture for this session so all tattoo
+    -- previews use the same body skin colour and server round-trips are minimised.
+    local skinTextureForSession = nil
+    GetSkin(function(back)
+        if back then
+            skinTextureForSession = ResolveTexture(back, pedSex)
+        end
+    end)
+
     -- MUSIC
     Citizen.InvokeNative(0x1E5185B72EF5158A, "MP_CHARACTER_CREATION_START")  -- PREPARE_MUSIC_EVENT
     Citizen.InvokeNative(0x706D57B0F50DA710, "MP_CHARACTER_CREATION_START") -- TRIGGER_MUSIC_EVENT
@@ -338,6 +354,38 @@ function MainMenu(stoolObj, x, y, z, h)
     -- Ouvre le menu principal
     WarMenu.OpenMenu("generalTattooMenu")
 
+    -- Resolves the skin texture exactly once per session, then reuses the cache.
+    -- Falls back to GetSkin if the pre-fetch above has not yet completed.
+    local function ensureSkinTexture(callback)
+        if skinTextureForSession then
+            callback(skinTextureForSession)
+        else
+            GetSkin(function(back)
+                if back then
+                    skinTextureForSession = ResolveTexture(back, pedSex)
+                    callback(skinTextureForSession)
+                else
+                    WarMenu.CloseMenu()
+                end
+            end)
+        end
+    end
+
+    -- Applies a tattoo preview using the resolved skin texture.
+    local function applyTattooPreview(k, tattoo, textureToUse)
+        if textureToUse then
+            if math.random(50) > 48 then
+                PlayAmbiantSpeechFromEntity(currentPed, "0315_U_M_M_NbxDoctor_01", "PUSH_SALE", "Speech_Params_Beat_Shouted_Clear_AllowPlayAfterDeath", 0)
+            end
+            tattooSelected.tattoo = tattoo
+            tattooSelected.sex = pedSex
+            tattooSelected.colorName = Config.TattooColors[selectedItemIndex[k]]
+            tattooSelected.Name = k
+            tattooSelected.textures = textureToUse
+            ApplyTexture(pedId, tattoo, textureToUse, selectedItemIndex[k], 1.0)
+        end
+    end
+
     -- Boucle principale d'affichage du menu
     while WarMenu.IsAnyMenuOpened() do
         --
@@ -359,23 +407,8 @@ function MainMenu(stoolObj, x, y, z, h)
                     currentItemIndex[k] = currentIndex
                     selectedItemIndex[k] = selectedIndex
                 end) then
-                    GetSkin(function(back)
-                        if back then
-                            local textureToUse = ResolveTexture(back, pedSex)
-                            if textureToUse then
-                                if math.random(50) > 48 then
-                                    PlayAmbiantSpeechFromEntity(currentPed, "0315_U_M_M_NbxDoctor_01", "PUSH_SALE", "Speech_Params_Beat_Shouted_Clear_AllowPlayAfterDeath", 0)
-                                end
-                                tattooSelected.tattoo = tattoo
-                                tattooSelected.sex = pedSex
-                                tattooSelected.colorName = Config.TattooColors[selectedItemIndex[k]]
-                                tattooSelected.Name = k
-                                tattooSelected.textures = textureToUse
-                                ApplyTexture(pedId, tattoo, textureToUse, selectedItemIndex[k], 1.0)
-                            end
-                        else
-                            WarMenu.CloseMenu()
-                        end
+                    ensureSkinTexture(function(tex)
+                        applyTattooPreview(k, tattoo, tex)
                     end)
                 end
             end
@@ -411,14 +444,14 @@ function MainMenu(stoolObj, x, y, z, h)
                 Citizen.Wait(2500)
                 --WarMenu.OpenMenu("generalTattooMenu") -- Retour au menu général
             elseif WarMenu.MenuButton(Config.Txt.DontBuyTattoo, "generalTattooMenu") then
-                DeleteTattoo(pedId, pedSex)
+                DeleteTattoo(pedId, pedSex, skinTextureForSession)
                 PlayAmbiantSpeechFromEntity(currentPed, "0315_U_M_M_NbxDoctor_01", "HAVE_A_LOOK_WARY", "Speech_Params_Beat_Shouted_Clear_AllowPlayAfterDeath", 0)
             end
         elseif WarMenu.IsMenuOpened('deleteTattoo') then -- SUPPRESSION TATOO
             -- Gère la suppression des tatouages
             if WarMenu.Button(Config.Txt.ConfirmDeleteTattoo) then
                 TriggerServerEvent("redrp-bt:deleteTattoo")
-                DeleteTattoo(pedId, pedSex) -- Pour supprimer un tatouage il faut en appliquer un nouveau avec l'opacité à 0.0
+                DeleteTattoo(pedId, pedSex, skinTextureForSession) -- Pour supprimer un tatouage il faut en appliquer un nouveau avec l'opacité à 0.0
                 Citizen.Wait(2500)
                 WarMenu.OpenMenu("generalTattooMenu") -- Retour au menu général
             elseif WarMenu.MenuButton(Config.Txt.DontWantDeleteTattoo, "generalTattooMenu") then end
@@ -429,12 +462,12 @@ function MainMenu(stoolObj, x, y, z, h)
     -- Supprime les lampes
     removeLamps()
     ClearPedTasks(pedId)
-    DeleteTattoo(pedId, pedSex) -- Supprime les tatouages du personnage (uniquement visuel, pas BDD)
+    DeleteTattoo(pedId, pedSex, skinTextureForSession) -- Supprime les tatouages du personnage (uniquement visuel, pas BDD)
     Citizen.Wait(500)
     if pedSex == "Female" then -- La texture change quand les habits changent, donc il faut retirer 2x pour les femmes pour ne pas qu'elle garde le tatouage topless + en sous vêtement
         ToggleToplessMode()
         Citizen.Wait(500)
-        DeleteTattoo(pedId, pedSex) -- Supprime les tatouages du personnage (uniquement visuel, pas BDD)
+        DeleteTattoo(pedId, pedSex, skinTextureForSession) -- Supprime les tatouages du personnage (uniquement visuel, pas BDD)
     end
     Citizen.Wait(500) -- ralentissement des requêtes, surtout quand ça concerne le chargement de textures
     Dress() -- Habille le personnage
@@ -494,18 +527,25 @@ end
 --- Supprime un tatouage du personnage
 --- @param pedId Integer ID du personnage
 --- @param pedSex String Sexe du personnage ("Male" ou "Female")
-function DeleteTattoo(pedId, pedSex)
+--- @param cachedTexture Table (optional) Pre-resolved skin texture to avoid an extra server round-trip
+function DeleteTattoo(pedId, pedSex, cachedTexture)
     tattooSelected = {}
-    GetSkin(function(back)
-        if back then
-            local textureToUse = ResolveTexture(back, pedSex)
-            if textureToUse then
-                for _, tattoo in pairs(Config.overlays[pedSex]) do
-                    ApplyTexture(pedId, tattoo, textureToUse, nil, 0.0)
-                end
+    local function doDelete(textureToUse)
+        if textureToUse then
+            for _, tattoo in pairs(Config.overlays[pedSex]) do
+                ApplyTexture(pedId, tattoo, textureToUse, nil, 0.0)
             end
         end
-    end)
+    end
+    if cachedTexture then
+        doDelete(cachedTexture)
+    else
+        GetSkin(function(back)
+            if back then
+                doDelete(ResolveTexture(back, pedSex))
+            end
+        end)
+    end
 end
 
 --- Applique une texture de tatouage au personnage
