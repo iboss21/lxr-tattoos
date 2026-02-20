@@ -208,6 +208,64 @@ Config.DEBUG = false -- Debug mode: All tattoos cost $1 for testing/debugging wh
 Config.UpdateTattooEveryMinute = false -- Update tattoos every minute (for texture sync issues)
 
 -- ████████████████████████████████████████████████████████████████████████████████
+-- ████████████████████████ FRAMEWORK EVENT CONFIGURATION ██████████████████████████
+-- ████████████████████████████████████████████████████████████████████████████████
+
+--[[
+    The event fired by your framework when a player has selected/loaded their character.
+    The tattoo script listens to this event to initialise (spawn NPC, restore tattoos, etc.).
+
+    Common values per framework:
+      'vorp:SelectedCharacter'         -> VORP Core  (default)
+      'RSGCore:Client:OnPlayerLoaded'  -> RSG-Core
+      'lxr-core:Client:OnPlayerLoaded' -> LXR-Core
+      'QBCore:Client:OnPlayerLoaded'   -> QBR-Core / QR-Core
+      'playerSpawned'                  -> RedEM:RP
+]]
+Config.PlayerLoadedEvent = 'vorp:SelectedCharacter'
+
+-- Additional player-loaded events to listen to simultaneously.
+-- Useful when running multiple frameworks or for extra safety.
+-- The tattoo script will re-initialise on ANY of these events.
+Config.AdditionalPlayerLoadedEvents = {
+    'RSGCore:Client:OnPlayerLoaded',     -- RSG-Core
+    'lxr-core:Client:OnPlayerLoaded',    -- LXR-Core
+    'QBCore:Client:OnPlayerLoaded',      -- QBR-Core / QR-Core
+    'playerSpawned',                     -- RedEM:RP
+}
+
+-- ████████████████████████████████████████████████████████████████████████████████
+-- ████████████████████████ CLOTHING / NAKED BODY CONFIGURATION ████████████████████
+-- ████████████████████████████████████████████████████████████████████████████████
+
+--[[
+    Item hashes applied to the ped AFTER all clothing is stripped, so that body parts
+    (torso, arms) remain visible instead of becoming invisible during tattoo viewing.
+
+    Female values are pre-configured with standard RDR2 MP female hashes.
+
+    Male:
+      If your male characters have invisible torso/arms after undressing, set the
+      'body' field to the bare-chest item hash for your character model.
+      Example: body = 0xABCDE123
+      Leave as nil if the base mesh already shows skin (no invisible body issue).
+
+    Clothing framework note:
+      The script saves your full outfit locally before undressing and restores it
+      afterwards, so this works with any clothing framework (VORP, RSG-Appearance,
+      Murphy Clothing, etc.) without requiring server callbacks.
+]]
+Config.NakedComponents = {
+    Male = {
+        body = nil,  -- Set bare-chest item hash here if torso/arms become invisible
+    },
+    Female = {
+        bra  = 0xF5BBD48,    -- Female underwear top (hidden in topless mode)
+        body = 1025891469,   -- Female naked body (0x3D2AFF8D)
+    }
+}
+
+-- ████████████████████████████████████████████████████████████████████████████████
 -- ████████████████████████ NPC & SHOP CONFIGURATION ██████████████████████████████
 -- ████████████████████████████████████████████████████████████████████████████████
 

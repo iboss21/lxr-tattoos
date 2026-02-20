@@ -3,6 +3,9 @@ local Lamps = {}
 local pedComponents = {}
 local playerCount = 0
 local playerUdpated = {}
+local savedOutfit = nil   -- stores item hashes saved before undressing
+local outfitSaved = false -- true while we have a pending local outfit to restore
+currentSession = 0  -- global: incremented each time a character loads; old loops exit when mismatched
 
 NPCCanMove = true
 -- RESTART/START/STOP/SPAWN
@@ -26,10 +29,22 @@ AddEventHandler('onResourceStart', function(resourceName)
 end)
 
 --- Initialise le script des tatouages lorsque le personnage est sélectionné.
---- @param none
-RegisterNetEvent('vorp:SelectedCharacter', function()
+--- Utilise l'événement configurable (Config.PlayerLoadedEvent) + événements supplémentaires.
+local function onCharacterLoaded()
+    currentSession = currentSession + 1
     InitTattooScript()
-end)
+end
+
+RegisterNetEvent(Config.PlayerLoadedEvent)
+AddEventHandler(Config.PlayerLoadedEvent, onCharacterLoaded)
+
+-- Register additional framework events for multi-framework compatibility
+for _, event in ipairs(Config.AdditionalPlayerLoadedEvents) do
+    if event ~= Config.PlayerLoadedEvent then
+        RegisterNetEvent(event)
+        AddEventHandler(event, onCharacterLoaded)
+    end
+end
 --
 
 --- Ajoute des icônes sur la carte pour marquer les emplacements des boutiques.
@@ -50,6 +65,7 @@ function removeBlips()
     for i=1, #Blips do
         RemoveBlip(Blips[i])
     end
+    Blips = {}
 end
 
 --- Ajoute un PNJ à une position spécifiée avec une orientation donnée.
@@ -327,10 +343,26 @@ function isPedComponentChanged()
     return changed
 end
 --- Retire les vêtements du joueur.
+--- Sauvegarde l'outfit complet localement avant de déshabiller (pour pouvoir le restaurer
+--- sans dépendre d'un callback serveur, quel que soit le framework de vêtements utilisé).
 --- @param topless Indique si le joueur doit être déshabillé jusqu'à la taille ou non (booléen)
 function Undress(topless)
     local pedId = PlayerPedId()
 
+    -- Save current outfit before stripping (only on the first call per tattoo session)
+    if not outfitSaved then
+        savedOutfit = {}
+        local seen = {}
+        for i = 1, #Config.PedComponents do
+            local component = Config.PedComponents[i]
+            local value = Citizen.InvokeNative(0xFB4891BD7578CDC1, pedId, component)
+            if value and value ~= 0 and not seen[value] then
+                seen[value] = true
+                table.insert(savedOutfit, value)
+            end
+        end
+        outfitSaved = true
+    end
 
     Citizen.InvokeNative(0xD710A5007C2AC539, pedId, 0x9925C067, 0)
     Citizen.InvokeNative(0xD710A5007C2AC539, pedId, 0x5E47CA6, 0)
@@ -372,25 +404,51 @@ function Undress(topless)
     Citizen.Wait(200)
     Citizen.InvokeNative(0xCC8CA3E88256E58F, pedId, 0, 1, 1, 1, 0)
 
-    if not IsPedMale(pedId) then
-        if not topless then
-            Citizen.InvokeNative(0xD3A7B003ED343FD9,pedId, 0xF5BBD48, true, false, false)
-            Citizen.InvokeNative(0xD3A7B003ED343FD9,pedId, 0xF5BBD48, true, true, false)
+    -- Apply naked/bare-skin body components so torso/arms remain visible
+    local pedSex = IsPedMale(pedId) and "Male" or "Female"
+    local naked = Config.NakedComponents[pedSex]
+    if pedSex == "Female" then
+        if not topless and naked.bra then
+            Citizen.InvokeNative(0xD3A7B003ED343FD9, pedId, naked.bra, true, false, false)
+            Citizen.InvokeNative(0xD3A7B003ED343FD9, pedId, naked.bra, true, true, false)
         end
-        Citizen.InvokeNative(0xD3A7B003ED343FD9,pedId, 1025891469, true, false, false)
-        Citizen.InvokeNative(0xD3A7B003ED343FD9,pedId, 1025891469, true, true, false)
+        if naked.body then
+            Citizen.InvokeNative(0xD3A7B003ED343FD9, pedId, naked.body, true, false, false)
+            Citizen.InvokeNative(0xD3A7B003ED343FD9, pedId, naked.body, true, true, false)
+            Citizen.Wait(200)
+            Citizen.InvokeNative(0xCC8CA3E88256E58F, pedId, 0, 1, 1, 1, 0)
+        end
+    elseif pedSex == "Male" and naked.body then
+        Citizen.InvokeNative(0xD3A7B003ED343FD9, pedId, naked.body, true, false, false)
+        Citizen.InvokeNative(0xD3A7B003ED343FD9, pedId, naked.body, true, true, false)
         Citizen.Wait(200)
         Citizen.InvokeNative(0xCC8CA3E88256E58F, pedId, 0, 1, 1, 1, 0)
     end
 end
 
 --- Habille le joueur avec les vêtements définis.
+--- Restaure d'abord depuis la sauvegarde locale (fonctionne avec tous les frameworks de
+--- vêtements : VORP, RSG-Appearance, Murphy Clothing, etc.).
 --- @param none
 function Dress()
+    local pedId = PlayerPedId()
+
+    -- Restore from locally saved outfit (framework-agnostic, works with RSG/Murphy/VORP/etc.)
+    if outfitSaved and savedOutfit and #savedOutfit > 0 then
+        for i = 1, #savedOutfit do
+            Citizen.InvokeNative(0xD3A7B003ED343FD9, pedId, savedOutfit[i], true, false, false)
+            Citizen.InvokeNative(0xD3A7B003ED343FD9, pedId, savedOutfit[i], true, true, false)
+        end
+        Citizen.Wait(250)
+        Citizen.InvokeNative(0xCC8CA3E88256E58F, pedId, 0, 1, 1, 1, 0)
+        outfitSaved = false
+        savedOutfit = nil
+        return
+    end
+
+    -- Fallback: VORP callback for outfit restoration (legacy / VORP-only path)
     TriggerEvent("vorp:ExecuteServerCallBack", "redrp-bt:getOutfit", function(back)
         if back then
-            local pedId = PlayerPedId()
-
             Citizen.InvokeNative(0xD3A7B003ED343FD9,pedId, back.Mask, true, false, false)
             Citizen.InvokeNative(0xD3A7B003ED343FD9,pedId, back.Mask, true, true, false)
 
