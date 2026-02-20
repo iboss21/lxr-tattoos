@@ -266,7 +266,8 @@ Config.NakedComponents = {
     },
     Female = {
         bra  = 0xF5BBD48,    -- Female underwear top (hidden in topless mode)
-        body = 1025891469,   -- Female naked body (0x3D2AFF8D)
+        body = nil,          -- nil = auto-detect from player's pre-strip body component (preserves skin tone)
+                             -- Set to a specific hash (e.g. 1025891469) to force a fixed naked-body item.
     }
 }
 

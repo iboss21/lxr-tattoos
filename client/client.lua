@@ -57,11 +57,48 @@ end)
 
 --- Picks the correct Config.Textures entry for pedSex based on skin albedo.
 --- Handles albedo as an integer hash (VORP) or a string texture name (lxr-core/rsg-core).
+--- Supports multiple murphy_creator JSON layouts where the albedo may be nested or stored as
+--- a 0-based integer head-type index.
 --- Falls back to the player's existing tattoo textures, then to the first entry.
 local function ResolveTexture(back, pedSex)
-    if back and back.albedo then
+    -- Extract the albedo value from several possible locations in the skin data.
+    -- Priority order:
+    --   1. back.albedo          – direct field (VORP / lxr-core standard format)
+    --   2. back.headAlbedo      – camelCase variant
+    --   3. back.head.albedo     – nested under a "head" sub-table
+    --   4. back.body.albedo     – nested under a "body" sub-table
+    --   5. back.headType        – 0-based integer index used by murphy_creator
+    --   6. back.head            – bare 0-based integer (some murphy_creator versions)
+    local albedoValue = nil
+    if back then
+        if back.albedo ~= nil then
+            albedoValue = back.albedo
+        elseif back.headAlbedo ~= nil then
+            albedoValue = back.headAlbedo
+        elseif type(back.head) == 'table' and back.head.albedo ~= nil then
+            albedoValue = back.head.albedo
+        elseif type(back.body) == 'table' and back.body.albedo ~= nil then
+            albedoValue = back.body.albedo
+        elseif back.headType ~= nil and type(back.headType) == 'number' then
+            -- murphy_creator stores the head type as a 0-based index into the head list
+            local configbase = Config.CharHeads[pedSex]
+            if configbase then
+                local entry = configbase[back.headType + 1]
+                if entry then albedoValue = entry end
+            end
+        elseif type(back.head) == 'number' then
+            -- Bare 0-based integer variant (some murphy_creator builds)
+            local configbase = Config.CharHeads[pedSex]
+            if configbase then
+                local entry = configbase[back.head + 1]
+                if entry then albedoValue = entry end
+            end
+        end
+    end
+
+    if albedoValue ~= nil then
         -- Support albedo as integer hash (VORP) or string texture name (lxr-core/rsg-core)
-        local albedoHash = type(back.albedo) == 'number' and back.albedo or joaat(tostring(back.albedo))
+        local albedoHash = type(albedoValue) == 'number' and albedoValue or joaat(tostring(albedoValue))
         local configbase = Config.CharHeads[pedSex]
         for i = 1, #configbase do
             if joaat(configbase[i]) == albedoHash then
