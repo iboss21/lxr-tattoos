@@ -32,8 +32,12 @@ client_scripts {
 }
 
 server_scripts {
-    '@mysql-async/lib/MySQL.lua',     -- MySQL init
+    '@oxmysql/lib/MySQL.lua',         -- MySQL init (oxmysql - standard for lxr-core/rsg-core)
     'server/*.lua'
+}
+
+dependencies {
+    'oxmysql',
 }
 
 escrow_ignore {

@@ -234,11 +234,11 @@ AddEventHandler('redrp-bt:restoreTattoo', function()
         return
     end
     
-    exports.ghmattimysql:execute('SELECT * FROM tattoo WHERE identifier = @identifier AND character_id = @character_id', {
+    MySQL.query('SELECT * FROM tattoo WHERE identifier = @identifier AND character_id = @character_id', {
         ['@identifier'] = Character.identifier,
         ['@character_id'] = Character.charIdentifier
     }, function(result)
-        if result[1] then
+        if result and result[1] then
             TriggerClientEvent('redrp-bt:setTattooTable', _source, json.decode(result[1].tattoo))
         end
     end)
@@ -254,14 +254,12 @@ AddEventHandler('redrp-bt:deleteTattoo', function()
         return
     end
     
-    exports.ghmattimysql:execute('DELETE FROM tattoo WHERE identifier = @identifier AND character_id = @character_id', {
+    MySQL.execute('DELETE FROM tattoo WHERE identifier = @identifier AND character_id = @character_id', {
         ['@identifier'] = Character.identifier,
         ['@character_id'] = Character.charIdentifier
-    }, function(rowsChanged)
-        if rowsChanged then
-            Notify(_source, "Your tattoos have been removed.", 5000)
-            TriggerClientEvent('redrp-bt:setTattooTable', _source, {})
-        end
+    }, function()
+        Notify(_source, "Your tattoos have been removed.", 5000)
+        TriggerClientEvent('redrp-bt:setTattooTable', _source, {})
     end)
 end)
 
@@ -300,31 +298,72 @@ AddEventHandler('redrp-bt:buyTattoo', function(tattoo)
                 return
             end
             
-            -- Delete existing tattoo
-            exports.ghmattimysql:execute('DELETE FROM tattoo WHERE identifier = @identifier AND character_id = @character_id', {
+            -- Delete existing tattoo, then insert new one inside the callback
+            MySQL.execute('DELETE FROM tattoo WHERE identifier = @identifier AND character_id = @character_id', {
                 ['@identifier'] = Character.identifier,
                 ['@character_id'] = Character.charIdentifier
-            }, function(rowsChanged)
-                if rowsChanged then
-                    -- Insert new tattoo
-                    exports.ghmattimysql:execute('INSERT INTO tattoo (identifier, character_id, tattoo) VALUES (@identifier, @character_id, @tattoo)', {
-                        ['@identifier'] = Character.identifier,
-                        ['@character_id'] = Character.charIdentifier,
-                        ['@tattoo'] = json.encode(tattoo)
-                    })
-                    
-                    -- Remove money and notify player
+            }, function()
+                MySQL.execute('INSERT INTO tattoo (identifier, character_id, tattoo) VALUES (@identifier, @character_id, @tattoo)', {
+                    ['@identifier'] = Character.identifier,
+                    ['@character_id'] = Character.charIdentifier,
+                    ['@tattoo'] = json.encode(tattoo)
+                }, function()
+                    -- Remove money, notify player, and update client only after DB is saved
                     RemoveMoney(_source, tattooPrice)
                     Notify(_source, string.format(Config.Txt.Server_BuyTattooMoney, tostring(math.ceil(tattooPrice))), 5000)
+                    TriggerClientEvent('redrp-bt:setTattooTable', _source, tattoo)
                     TriggerClientEvent("redrp-bt:closeTattooShop", _source)
-                end
+                end)
             end)
             
-            -- Update client tattoo
-            TriggerClientEvent('redrp-bt:setTattooTable', _source, tattoo)
             break
         end
     end
+end)
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- UNIVERSAL SKIN CALLBACK (framework-agnostic, for non-VORP frameworks)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+--- Returns character skin data to the client so it can pick the correct texture variant.
+--- For VORP the data comes from the character skin JSON stored by VORP.
+--- For lxr-core / rsg-core the skin JSON (if present in PlayerData) is returned;
+--- an empty table is sent as fallback so the client falls back to the first texture.
+RegisterServerEvent('lxr-tattoos:requestSkin')
+AddEventHandler('lxr-tattoos:requestSkin', function(requestId)
+    local _source = source
+    if type(requestId) ~= 'number' or requestId < 1 then return end
+    local skinData = {}
+
+    if FrameworkName == 'vorp_core' then
+        local User = VorpCore.getUser(_source)
+        if User then
+            local Character = User.getUsedCharacter
+            if Character and Character.skin and type(Character.skin) == "string" and Character.skin ~= "" then
+                local ok, decoded = pcall(json.decode, Character.skin)
+                if ok and type(decoded) == "table" then
+                    skinData = decoded
+                end
+            end
+        end
+    elseif FrameworkName == 'lxr-core' or FrameworkName == 'rsg-core' then
+        local Player = Framework.Functions.GetPlayer(_source)
+        if Player then
+            local rawSkin = Player.PlayerData.skin
+            if rawSkin then
+                if type(rawSkin) == "string" and rawSkin ~= "" then
+                    local ok, decoded = pcall(json.decode, rawSkin)
+                    if ok and type(decoded) == "table" then
+                        skinData = decoded
+                    end
+                elseif type(rawSkin) == "table" then
+                    skinData = rawSkin
+                end
+            end
+        end
+    end
+
+    TriggerClientEvent('lxr-tattoos:skinResponse', _source, requestId, skinData)
 end)
 
 -- ═══════════════════════════════════════════════════════════════════════════════
