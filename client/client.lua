@@ -26,6 +26,74 @@ local currentScenario -- Defini le scénario actuel
 local currentPed -- Défini le ped tatouteur actuel
 local currentTextureId
 
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- FRAMEWORK-AGNOSTIC SKIN REQUEST SYSTEM
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+local skinRequestCallbacks = {}
+local skinRequestId = 0
+
+--- Requests character skin data, then calls callback(skinData).
+--- Uses VORP's built-in callback for VORP servers; falls back to a custom
+--- TriggerServerEvent/TriggerClientEvent round-trip for lxr-core / rsg-core.
+local function GetSkin(callback)
+    if ClientFramework == 'vorp_core' then
+        TriggerEvent("vorp:ExecuteServerCallBack", "redrp-bt:getSkin", callback)
+    else
+        skinRequestId = skinRequestId + 1
+        local id = skinRequestId
+        skinRequestCallbacks[id] = callback
+        TriggerServerEvent('lxr-tattoos:requestSkin', id)
+    end
+end
+
+RegisterNetEvent('lxr-tattoos:skinResponse')
+AddEventHandler('lxr-tattoos:skinResponse', function(requestId, skinData)
+    if skinRequestCallbacks[requestId] then
+        skinRequestCallbacks[requestId](skinData)
+        skinRequestCallbacks[requestId] = nil
+    end
+end)
+
+--- Picks the correct Config.Textures entry for pedSex based on skin albedo.
+--- Falls back to the first entry when albedo is unknown (lxr-core / rsg-core).
+local function ResolveTexture(back, pedSex)
+    if back and back.albedo then
+        local configbase = Config.CharHeads[pedSex]
+        for i = 1, #configbase do
+            if joaat(configbase[i]) == back.albedo then
+                local chaine = configbase[i]
+                local debut, fin = string.find(chaine, "_sc(%d+)_")
+                local sc = string.sub(chaine, debut + 3, fin - 1)
+                for _, textures in pairs(Config.Textures[pedSex]) do
+                    if string.find(textures.baseAlbedo, tostring("0" .. sc)) then
+                        return textures
+                    end
+                end
+                break
+            end
+        end
+    end
+    -- Fallback: use first available texture (covers lxr-core / rsg-core with no albedo)
+    return Config.Textures[pedSex][1]
+end
+
+--- Framework-aware client-side notification.
+local function ClientNotify(message, duration)
+    if ClientFramework == 'lxr-core' or ClientFramework == 'rsg-core' then
+        TriggerEvent('ox_lib:notify', {
+            title = 'Tattoo Shop',
+            description = message,
+            type = 'inform',
+            duration = duration or 5000
+        })
+    elseif ClientFramework == 'vorp_core' then
+        TriggerEvent("vorp:TipRight", message, duration or 5000)
+    else
+        TriggerEvent('chat:addMessage', {args = {"^3[Tattoo Shop]^7", message}})
+    end
+end
+
 --- Définit les prompts pour acheter un tatouage et retirer le haut
 --- @param none
 function SetTattooPrompt()
@@ -144,7 +212,7 @@ function InitTattooScript()
                             if PromptHasHoldModeCompleted(TattooPrompt) then
                                 if Config.OnlyOneTattoo and currentTextureId then
                                     PlayAmbiantSpeechFromEntity(v.NPCPed, "0315_U_M_M_NbxDoctor_01", "WELCOME_BACK", "Speech_Params_Beat_Shouted_Clear_AllowPlayAfterDeath", 0)
-                                    TriggerEvent("vorp:TipRight", Config.Txt.AlreadyBoughtTattoo,5000)
+                                    ClientNotify(Config.Txt.AlreadyBoughtTattoo, 5000)
                                     Citizen.Wait(500)
                                     break
                                 end
@@ -178,8 +246,10 @@ function InitTattooScript()
                                 if v.StoolObj and v.NPCPed then
                                     -- Bloque les commandes du joueur
                                     BlockPlayerCommands(6000)
-                                    -- Place le joueur dans une instance (invisible aux yeux des autres et il ne voit pas les autres)
-                                    TriggerServerEvent('vorp_core:instanceplayers', tonumber(GetPlayerServerId(PlayerId())) + 45557)
+                                    -- Place le joueur dans une instance (VORP only)
+                                    if ClientFramework == 'vorp_core' then
+                                        TriggerServerEvent('vorp_core:instanceplayers', tonumber(GetPlayerServerId(PlayerId())) + 45557)
+                                    end
                                     --
                                     currentPed = v.NPCPed
                                     Citizen.Wait(2500)
@@ -289,31 +359,19 @@ function MainMenu(stoolObj, x, y, z, h)
                     currentItemIndex[k] = currentIndex
                     selectedItemIndex[k] = selectedIndex
                 end) then
-                    TriggerEvent("vorp:ExecuteServerCallBack", "redrp-bt:getSkin", function(back)
+                    GetSkin(function(back)
                         if back then
-                            local configbase = Config.CharHeads[pedSex]
-                            for i=1, #configbase do
-                                if joaat(configbase[i]) == back.albedo then
-                                    -- ChatGPT
-                                    local chaine = configbase[i]
-                                    local debut, fin = string.find(chaine, "_sc(%d+)_") -- extraire "sc0x_"
-                                    local sc = string.sub(chaine, debut + 3, fin - 1) -- extraire les 2 chiffres entre SC et _
-                                    --
-                                    for _, textures in pairs(Config.Textures[pedSex]) do
-                                        if string.find(textures.baseAlbedo, tostring("0" .. sc)) then
-                                            if math.random(50) > 48 then
-                                                PlayAmbiantSpeechFromEntity(currentPed, "0315_U_M_M_NbxDoctor_01", "PUSH_SALE", "Speech_Params_Beat_Shouted_Clear_AllowPlayAfterDeath", 0)
-                                            end
-                                            tattooSelected.tattoo = tattoo
-                                            tattooSelected.sex = pedSex
-                                            tattooSelected.colorName = Config.TattooColors[selectedItemIndex[k]]
-                                            tattooSelected.Name = k
-                                            tattooSelected.textures = textures
-                                            ApplyTexture(pedId, tattoo, textures, selectedItemIndex[k], 1.0)
-                                            break
-                                        end
-                                    end
+                            local textureToUse = ResolveTexture(back, pedSex)
+                            if textureToUse then
+                                if math.random(50) > 48 then
+                                    PlayAmbiantSpeechFromEntity(currentPed, "0315_U_M_M_NbxDoctor_01", "PUSH_SALE", "Speech_Params_Beat_Shouted_Clear_AllowPlayAfterDeath", 0)
                                 end
+                                tattooSelected.tattoo = tattoo
+                                tattooSelected.sex = pedSex
+                                tattooSelected.colorName = Config.TattooColors[selectedItemIndex[k]]
+                                tattooSelected.Name = k
+                                tattooSelected.textures = textureToUse
+                                ApplyTexture(pedId, tattoo, textureToUse, selectedItemIndex[k], 1.0)
                             end
                         else
                             WarMenu.CloseMenu()
@@ -333,9 +391,15 @@ function MainMenu(stoolObj, x, y, z, h)
                 end
                 PromptSetActiveGroupThisFrame(TattooPrompts, CreateVarString(10, 'LITERAL_STRING', Config.Txt.GeneralMenuTitle))
             end
-            if tattooSelected.Name and WarMenu.MenuButton(string.format(Config.Txt.BuySelectedTattoo, tattooSelected.Name, tattooSelected.colorName, (tattooSelected.colorName == "Noir" and tattooSelected.tattoo.price or tattooSelected.tattoo.price + Config.ColorPrice)), "buyTattoo") then
-                PlayAmbiantSpeechFromEntity(currentPed, "0315_U_M_M_NbxDoctor_01", "PRICE_DISCOUNT", "Speech_Params_Beat_Shouted_Clear_AllowPlayAfterDeath", 0)
-            elseif Config.DeleteAllTattooOption and MY_TATTOO.textures and WarMenu.MenuButton(Config.Txt.DeleteAllTattoo, "deleteTattoo") then
+            if tattooSelected.Name then
+                local isBase = (tattooSelected.colorName == "Noir" or tattooSelected.colorName == "Black")
+                local displayPrice = isBase and tattooSelected.tattoo.price or tattooSelected.tattoo.price + Config.ColorPrice
+                local buyLabel = string.format(Config.Txt.BuySelectedTattoo, tattooSelected.Name, tattooSelected.colorName, displayPrice)
+                if WarMenu.MenuButton(buyLabel, "buyTattoo") then
+                    PlayAmbiantSpeechFromEntity(currentPed, "0315_U_M_M_NbxDoctor_01", "PRICE_DISCOUNT", "Speech_Params_Beat_Shouted_Clear_AllowPlayAfterDeath", 0)
+                end
+            end
+            if Config.DeleteAllTattooOption and MY_TATTOO.textures and WarMenu.MenuButton(Config.Txt.DeleteAllTattoo, "deleteTattoo") then
                 PlayAmbiantSpeechFromEntity(currentPed, "0315_U_M_M_NbxDoctor_01", "GENERIC_BUY_RESPONSE", "Speech_Params_Beat_Shouted_Clear_AllowPlayAfterDeath", 0)
             elseif WarMenu.Button(Config.Txt.CloseMenu) then
                 WarMenu.CloseMenu()
@@ -383,8 +447,10 @@ function MainMenu(stoolObj, x, y, z, h)
     Citizen.InvokeNative(0x706D57B0F50DA710, "MP_CHARACTER_CREATION_STOP") -- TRIGGER_MUSIC_EVENT
     -- Salue le PNJ
     Citizen.InvokeNative(0xB31A277C1AC7B7FF,pedId,1,2,GetHashKey("KIT_EMOTE_GREET_HAT_TIP_1"),0,0,0,0,0) -- TASK_PLAY_EMOTE_WITH_HASH
-    -- remet le joueur visible aux yeux des autres
-    TriggerServerEvent('vorp_core:instanceplayers', 0)
+    -- remet le joueur visible aux yeux des autres (VORP only)
+    if ClientFramework == 'vorp_core' then
+        TriggerServerEvent('vorp_core:instanceplayers', 0)
+    end
     --
     -- Déplace le PNJ à sa position initiale
     if DoesEntityExist(currentPed) then
@@ -430,28 +496,16 @@ end
 --- @param pedSex String Sexe du personnage ("Male" ou "Female")
 function DeleteTattoo(pedId, pedSex)
     tattooSelected = {}
-    for _, tattoo in pairs(Config.overlays[pedSex]) do
-        TriggerEvent("vorp:ExecuteServerCallBack", "redrp-bt:getSkin", function(back)
-            if back then
-                local configbase = Config.CharHeads[pedSex]
-                for i=1, #configbase do
-                    if joaat(configbase[i]) == back.albedo then
-                        -- ChatGPT
-                        local chaine = configbase[i]
-                        local debut, fin = string.find(chaine, "_sc(%d+)_") -- extraire "sc0x_"
-                        local sc = string.sub(chaine, debut + 3, fin - 1) -- extraire les 2 chiffres entre SC et _
-                        --
-                        for _, textures in pairs(Config.Textures[pedSex]) do
-                            if string.find(textures.baseAlbedo, tostring("0" .. sc)) then
-                                ApplyTexture(pedId, tattoo, textures, nil,0.0)
-                                return
-                            end
-                        end
-                    end
+    GetSkin(function(back)
+        if back then
+            local textureToUse = ResolveTexture(back, pedSex)
+            if textureToUse then
+                for _, tattoo in pairs(Config.overlays[pedSex]) do
+                    ApplyTexture(pedId, tattoo, textureToUse, nil, 0.0)
                 end
             end
-        end)
-    end
+        end
+    end)
 end
 
 --- Applique une texture de tatouage au personnage

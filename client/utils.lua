@@ -8,6 +8,19 @@ local outfitSaved = false -- true while we have a pending local outfit to restor
 currentSession = 0  -- global: incremented each time a character loads; old loops exit when mismatched
 
 NPCCanMove = true
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- CLIENT-SIDE FRAMEWORK DETECTION
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+ClientFramework = 'standalone'
+if GetResourceState('lxr-core') == 'started' then
+    ClientFramework = 'lxr-core'
+elseif GetResourceState('rsg-core') == 'started' then
+    ClientFramework = 'rsg-core'
+elseif GetResourceState('vorp_core') == 'started' then
+    ClientFramework = 'vorp_core'
+end
 -- RESTART/START/STOP/SPAWN
 --- Supprime toutes les icônes ajoutées sur la carte par la fonction `addBlips()` et les PNJ ajoutés par `addNPC()` et les tabourets ajoutés par 'addStool()'
 --- lors de l'arrêt de la ressource.
@@ -447,7 +460,8 @@ function Dress()
     end
 
     -- Fallback: VORP callback for outfit restoration (legacy / VORP-only path)
-    TriggerEvent("vorp:ExecuteServerCallBack", "redrp-bt:getOutfit", function(back)
+    if ClientFramework == 'vorp_core' then
+        TriggerEvent("vorp:ExecuteServerCallBack", "redrp-bt:getOutfit", function(back)
         if back then
             Citizen.InvokeNative(0xD3A7B003ED343FD9,pedId, back.Mask, true, false, false)
             Citizen.InvokeNative(0xD3A7B003ED343FD9,pedId, back.Mask, true, true, false)
@@ -527,4 +541,5 @@ function Dress()
             Citizen.InvokeNative(0xCC8CA3E88256E58F,pedId, 0, 1, 1, 1, 0)
         end
     end)
+    end -- if ClientFramework == 'vorp_core'
 end
