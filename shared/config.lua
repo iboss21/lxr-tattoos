@@ -245,10 +245,15 @@ Config.AdditionalPlayerLoadedEvents = {
     Female values are pre-configured with standard RDR2 MP female hashes.
 
     Male:
-      If your male characters have invisible torso/arms after undressing, set the
-      'body' field to the bare-chest item hash for your character model.
-      Example: body = 0xABCDE123
-      Leave as nil if the base mesh already shows skin (no invisible body issue).
+      The script automatically captures the player's current body component hash
+      (slot 0x79D7DF96) before undressing and re-applies it afterwards, so the skin
+      tone set by RSG-Appearance / Murphy Clothing is preserved without any extra
+      configuration.
+
+      If – for any reason – that auto-detection is not enough (e.g. a custom ped model
+      where the body slot is always empty), you can hard-code a bare-chest item hash:
+        body = 0xABCDE123
+      Leave as nil (the default) to rely on the automatic pre-strip capture.
 
     Clothing framework note:
       The script saves your full outfit locally before undressing and restores it
@@ -257,7 +262,7 @@ Config.AdditionalPlayerLoadedEvents = {
 ]]
 Config.NakedComponents = {
     Male = {
-        body = nil,  -- Set bare-chest item hash here if torso/arms become invisible
+        body = nil,  -- nil = auto-detect from player's pre-strip body component (preserves skin tone)
     },
     Female = {
         bra  = 0xF5BBD48,    -- Female underwear top (hidden in topless mode)

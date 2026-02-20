@@ -377,6 +377,13 @@ function Undress(topless)
         outfitSaved = true
     end
 
+    -- Capture the body component hash before stripping so we can restore the player's own
+    -- skin tone after undressing (required for Murphy Clothing + RSG-Appearance setups where
+    -- a framework-managed item hash drives the skin-tone texture on the body component slot).
+    -- 0xFB4891BD7578CDC1 = _GET_PED_CURRENT_OUTFIT_COMPONENT (returns the item hash in the slot)
+    -- 0x79D7DF96          = component category hash for the base body / torso mesh
+    local savedBodyHash = Citizen.InvokeNative(0xFB4891BD7578CDC1, pedId, 0x79D7DF96)
+
     Citizen.InvokeNative(0xD710A5007C2AC539, pedId, 0x9925C067, 0)
     Citizen.InvokeNative(0xD710A5007C2AC539, pedId, 0x5E47CA6, 0)
     Citizen.InvokeNative(0xD710A5007C2AC539, pedId, 0x5FC29285, 0)
@@ -431,11 +438,20 @@ function Undress(topless)
             Citizen.Wait(200)
             Citizen.InvokeNative(0xCC8CA3E88256E58F, pedId, 0, 1, 1, 1, 0)
         end
-    elseif pedSex == "Male" and naked.body then
-        Citizen.InvokeNative(0xD3A7B003ED343FD9, pedId, naked.body, true, false, false)
-        Citizen.InvokeNative(0xD3A7B003ED343FD9, pedId, naked.body, true, true, false)
-        Citizen.Wait(200)
-        Citizen.InvokeNative(0xCC8CA3E88256E58F, pedId, 0, 1, 1, 1, 0)
+    elseif pedSex == "Male" then
+        -- Prefer the explicit config hash; fall back to the pre-strip body hash so the
+        -- player's own skin tone (managed by RSG-Appearance / Murphy Clothing) is preserved
+        -- instead of reverting to the engine's default "native" complexion.
+        local bodyHash = naked.body
+        if not bodyHash and savedBodyHash and savedBodyHash ~= 0 then
+            bodyHash = savedBodyHash
+        end
+        if bodyHash then
+            Citizen.InvokeNative(0xD3A7B003ED343FD9, pedId, bodyHash, true, false, false)
+            Citizen.InvokeNative(0xD3A7B003ED343FD9, pedId, bodyHash, true, true, false)
+            Citizen.Wait(200)
+            Citizen.InvokeNative(0xCC8CA3E88256E58F, pedId, 0, 1, 1, 1, 0)
+        end
     end
 end
 
