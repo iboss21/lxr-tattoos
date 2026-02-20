@@ -60,9 +60,12 @@ function InitTattooScript()
     -- Déclenche un événement serveur pour restaurer les tatouages du joueur
     TriggerServerEvent("redrp-bt:restoreTattoo")
 
+    -- Capture the session id so this particular loop can detect when it should stop
+    local mySession = currentSession
+
     -- Boucle pour restaurer les tatouages (Si le joueur a son skin rechargé, si le personnage spawn, si la texture change, etc...)
     Citizen.CreateThread(function()
-        while true do
+        while mySession == currentSession do
             Citizen.Wait(2500)
             while WarMenu.IsAnyMenuOpened() or not Citizen.InvokeNative(0xA0BC8FAED8CFEB3C, PlayerPedId()) do -- Vérifie si le personnage est prêt à être rendu
                 Citizen.Wait(1000)
@@ -86,7 +89,7 @@ function InitTattooScript()
     end)
     --
     Citizen.CreateThread(function()
-        while Config.UpdateTattooEveryMinute do
+        while Config.UpdateTattooEveryMinute and mySession == currentSession do
             Citizen.Wait(60000)
             while WarMenu.IsAnyMenuOpened() or not Citizen.InvokeNative(0xA0BC8FAED8CFEB3C, PlayerPedId()) do -- Vérifie si le personnage est prêt à être rendu
                 Citizen.Wait(1000)
@@ -111,6 +114,7 @@ function InitTattooScript()
 
     -- Ajoute les blips pour les boutiques de tatouage
     if Config.ShowBlips then
+        removeBlips()
         addBlips()
     end
 
@@ -118,7 +122,7 @@ function InitTattooScript()
     setNPCRandomPosition()
 
     -- Boucle principale du script
-    while true do
+    while mySession == currentSession do
         Citizen.Wait(0)
         -- Vérifie si le joueur est en jeu et aucun menu n'est ouvert
         if IsPlayerPlaying(PlayerId()) and not WarMenu.IsAnyMenuOpened() then
